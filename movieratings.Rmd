@@ -1,0 +1,219 @@
+---
+title: "Analyzing Movie Ratings"
+author: "Abe Ceasar Perez"
+date: "April 10, 2022"
+output: html_document
+---
+
+### Extracting Data from a Webpage
+
+This project aims to apply the practice of web-scraping using R to extract relevant data. Specifically, the goal is to extract the top 30 movies in the IMDB website from March to July 2020.
+
+In addition to the objectives above, we'll be applying the following concepts in this project:
+
+- Webscraping functions
+- Vectorization
+- String Manipulation
+- Plotting/Visualization
+
+To understand how the results were obtained, the process is outlined below:
+
+### Loading the Packages
+
+The following packages to be loaded are outlined here along with their uses:
+
+- rvest - for loading the web-scraping functions
+- stringr - for extracting/manipulating strings
+- readr - for reading files/manipulating data
+- dplyr - for loading additional functions
+- ggplot2 - for visualizing data
+
+```{r load_packages, echo=TRUE, warning=FALSE}
+
+pacman::p_load("rvest", "stringr","dplyr", "ggplot2", "readr") # reads all package names and loads them simultaneously
+
+```
+
+### Loading the Webpage
+
+We'll now start by reading the webpage content using the read_html function. the link that we'll be using is a copy of the page of interest to avoid external server instability issues.
+
+```{r load_webpage, echo=TRUE, warning=FALSE}
+
+url <- "http://dataquestio.github.io/web-scraping-pages/IMDb-DQgp.html"
+wp_content <- read_html(url) # reads the link of the webpage
+wp_content
+
+```
+
+### Extracting the Movies' Information
+
+After we have read the html page, we'll now start extracing the movie ratings data from the read page. We'll begin by extracting the titles of the movies and storing them into a vector:
+
+```{r extract_titles, echo=TRUE, warning=FALSE}
+
+titles <- wp_content %>% 
+  html_nodes(".lister-item-header a") %>% # reads the html tag for the movie title from the web page
+  html_text() # converts the output into text
+
+titles
+
+```
+
+Next, we'll be extracting the movies' year of releases. Since the years are wrapped in parenthesis, we'll be modfiying the string and then convert it into numerical form.
+
+```{r extract_years, echo=TRUE, warning=FALSE}
+
+years <- wp_content %>% 
+  html_nodes(".text-muted.unbold") %>% # reads the html tag for the movie release year from the web page
+  html_text() %>% 
+  parse_number # extracts only the numerical component and changes the data type to integer
+
+years
+
+```
+
+Using the similar process above, we'll also use that in extracting and modifying the runtime of the movies
+
+```{r extract_runtime, echo=TRUE, warning=FALSE}
+
+runtime <- wp_content %>% 
+  html_nodes(".runtime") %>% # reads the html tag for movie runtime from the web page
+  html_text() %>% 
+  parse_number() # extracts only the numerical component and changes the data type to integer
+
+runtime
+
+```
+
+For the movie genres, we'll also be extracting these similar to how the movie titles were extracted except that additional cleaning is made to remove the additional whitespace at the end of the genres.
+
+```{r extract_genre, echo=TRUE, warning=FALSE}
+
+genre <- wp_content %>% 
+  html_nodes(".genre") %>% # reads the html tag for movie genre from the web page
+  html_text() %>% 
+  str_trim() # removes additional whitespace at the end of the string
+
+genre
+
+```
+
+For the movie ratings, we'll be extracting it similar with the extracted numerical data above but using a different html function (html_attr). Apart from cleaning the data, we'll also be removing missing ratings data before storing it in a vector.
+
+```{r extract_ratings, echo=TRUE, warning=FALSE}
+
+ratings <- wp_content %>% 
+  html_nodes("div") %>% 
+  html_attr("data-value") # reads the corresponding html tags for movie ratings
+
+ratings <- parse_number(ratings[!(is.na(ratings))]) # removes missing ratings before modifying the movie ratings
+
+ratings
+
+```
+
+We'll also use this process to extract the metascores of each movie.
+
+```{r extract_metascore, echo=TRUE, warning=FALSE}
+
+metascore <- wp_content %>% 
+  html_nodes("span.metascore") %>% 
+  html_text() # reads the corresponding html tags for metascores
+
+metascore <- parse_number(metascore) # extracts only the numerical component and changes the data type to integer
+
+metascore
+
+```
+
+Similar to out previous process of extracting numerical data, we'll also be performing this in extracting the total votes obtained in the movies.
+
+```{r extract_votes, echo=TRUE, warning=FALSE}
+
+votes <- wp_content %>% 
+  html_nodes(".text-muted+ span") %>% # reads the corresponding html tags for total movie votes
+  html_text() %>% 
+  parse_number() # extracts only the numerical component and changes the data type to integer
+
+votes
+
+```
+
+### Modifying the Movie Vectors
+
+Before combining all vectors into one dataframe, we'll be performing some vectorization to ensure that each vector is of the same length. 
+
+For the first vector (metascore), the length of the vector (25) is short compared to the other vectors (titles, etc. - 30) so we'll be imputing values here using a user-defined function.
+
+```{r impute_values, echo=TRUE, warning=FALSE}
+
+append_vector <- function(vector, inserted_indices, values){
+
+  ## Creating the current indices of the vector
+  vector_current_indices <- 1:length(vector)
+
+  ## Adding small amount of values (between 0 and 0.9) to the `inserted_indices`
+  new_inserted_indices <- inserted_indices + seq(0, 0.9, length.out = length(inserted_indices))
+
+  ## Appending the `new_inserted_indices` to the current vector indices
+  indices <- c(vector_current_indices, new_inserted_indices)
+
+  ## Ordering the indices
+  ordered_indices <- order(indices)
+
+  ## Appending the new value to the existing vector
+  new_vector <- c(vector, values)
+
+  ## Ordering the new vector wrt the ordered indices
+  new_vector[ordered_indices]
+}
+
+new_metascores <- append_vector(metascore, c(1,1,1,13,24), NA) # calls the function along with imputed metascores
+
+```
+
+Next, since one movie title (A Quiet Place II) does not have majority of the information in each of the numerical vectors (rating, metascore, votes), we'll be removing all movie-related information for this title.
+
+```{r remove_one_title, echo=TRUE, warning=FALSE}
+
+quiet_place <- match("A Quiet Place Part II", titles)
+
+titles <- titles[-quiet_place]
+years <- years[-quiet_place]
+runtime <- runtime[-quiet_place]
+genre <- genre[-quiet_place]
+new_metascores <- new_metascores[-quiet_place]
+
+```
+
+Combining all Vectors into one Dataframe
+
+To summarize all the information from the vectors, we'll be combining all of them into one tibble/dataframe. We'll also be modifying the ratings into a single digit.
+
+```{r dataframe, echo=TRUE, warning=FALSE}
+
+df <- tibble(titles, 
+             years,
+             runtime, 
+             genre, 
+             ratings = floor(ratings), # keeps only the whole number of the rating
+             new_metascores, 
+             votes)
+df
+
+```
+
+Lastly, to further understand the data in terms of movie rating, we'll be visualizing them using a boxplot.
+
+```{r boxplot, echo=TRUE, warning=FALSE}
+
+df %>% 
+  ggplot(aes(x=as.factor(ratings), y=votes)) + # converts ratings into factor for categorization
+  geom_boxplot() + 
+  labs(x="rating")
+
+```
+
+<br>
+<br>
